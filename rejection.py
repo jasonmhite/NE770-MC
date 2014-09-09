@@ -47,7 +47,7 @@ class RejectionSampler(Sampler):
 
             if len(x_accept) > Nh:
                 x_accept = x_accept[:Nh]
-                self.prop += np.argwhere(Z).flatten()[Nh]
+                self.prop += np.argwhere(Z).flatten()[Nh] + 1
             else:
                 self.prop += len(X)
 
@@ -73,6 +73,7 @@ class MultiRegionRejectionSampler(Sampler):
 
         self.samplers = []
         self.weights = []
+        self.n_regions = len(regions)
 
         for lower, upper in regions:
             S = RejectionSampler(pdf, tallyfxn, lower, upper)
@@ -86,14 +87,19 @@ class MultiRegionRejectionSampler(Sampler):
         self.weights /= self.weights.sum()
 
     def _draw_samples(self, N):
-        if np.mod(N, self.batch_size) != 0:
-            raise(Exception())
+        ns = np.random.choice(np.arange(self.n_regions),
+                              N,
+                              p=self.weights
+                             )
+        ns = [len(np.extract(ns == i, ns)) for i in xrange(self.n_regions)]
 
         S = np.array([])
 
-        while len(S) < N:
-            Si = np.random.choice(self.samplers, p=self.weights)
-            S = np.hstack((S, Si._draw_samples(self.batch_size)))
+        for (Si, n) in zip(self.samplers, ns):
+            S = np.hstack((S, Si._draw_samples(n)))
+
+        # Not strictly necessary, but shuffle things up
+        np.random.shuffle(S)
 
         return(S)
 
@@ -113,3 +119,6 @@ class MultiRegionRejectionSampler(Sampler):
     def e(self):
         return(1. / ((self.weights / self.ei).sum()))
 
+    @property
+    def h(self):
+        return([a.hmax for a in self.samplers])
