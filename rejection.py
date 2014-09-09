@@ -1,22 +1,36 @@
 from __future__ import division
 import numpy as np
+import scipy.optimize as sop
+import scipy.integrate as sin
 from .sampling import Sampler
 
-__all__ = ['RejectionSampler']
+__all__ = ['RejectionSampler', 'MultiRegionRejectionSampler']
 
 class RejectionSampler(Sampler):
 
     """Rejection sampler. Will adaptively select the batch size."""
 
-    def __init__(self, pdf, tallyfxn, lower, upper, hmax):
+    def __init__(self, pdf, tallyfxn, lower, upper, hmax=None):
         Sampler.__init__(self, tallyfxn, pdf)
-        self.hmax = hmax
+        if hmax is None:
+            bounds = np.array([[lower, upper]])
+            x0 = np.atleast_1d((upper - lower) / 2.)
+            r = sop.minimize(lambda x: np.atleast_1d(-1. * pdf(x)),
+                             x0=x0,
+                             bounds=bounds,
+                             method='L-BFGS-B',
+                             options={'maxiter': 50}
+                             )
+            self.hmax = -1. * r.fun[0]
+        else:
+            self.hmax = hmax
         self.lower = lower
         self.upper = upper
+        self.prop = 0
+        self.accept = 0
 
     def _draw_samples(self, N):
         Nh = N
-        prop = 0
         S = np.array([])
         eff = 0.9
 
@@ -33,13 +47,69 @@ class RejectionSampler(Sampler):
 
             if len(x_accept) > Nh:
                 x_accept = x_accept[:Nh]
-                prop += np.argwhere(Z).flatten()[Nh]
+                self.prop += np.argwhere(Z).flatten()[Nh]
             else:
-                prop += len(X)
+                self.prop += len(X)
+
+            self.accept += len(x_accept)
 
             S = np.hstack((S, x_accept))
             Nh -= len(x_accept)
 
-            eff = max(0.05, (N - Nh) / prop)
+            eff = max(0.05, (N - Nh) / self.prop)
 
-        return(S, prop)
+        return(S)
+
+    @property
+    def e(self):
+        return(self.accept / self.prop)
+
+class MultiRegionRejectionSampler(Sampler):
+
+    """See class name..."""
+
+    def __init__(self, pdf, tallyfxn, regions):
+        Sampler.__init__(self, tallyfxn, pdf)
+
+        self.samplers = []
+        self.weights = []
+
+        for lower, upper in regions:
+            S = RejectionSampler(pdf, tallyfxn, lower, upper)
+            S_H, err = sin.quad(pdf, lower, upper)
+
+            self.samplers.append(S)
+            self.weights.append(S_H)
+
+        self.weights = np.array(self.weights)
+        # Adjust weights to sum to 1 for numeric noise
+        self.weights /= self.weights.sum()
+
+    def _draw_samples(self, N):
+        if np.mod(N, self.batch_size) != 0:
+            raise(Exception())
+
+        S = np.array([])
+
+        while len(S) < N:
+            Si = np.random.choice(self.samplers, p=self.weights)
+            S = np.hstack((S, Si._draw_samples(self.batch_size)))
+
+        return(S)
+
+    @property
+    def prop(self):
+        p = 0
+        for Si in self.samplers:
+            p += Si.prop
+
+        return(p)
+
+    @property
+    def ei(self):
+        return(np.array([Si.e for Si in self.samplers]))
+
+    @property
+    def e(self):
+        return(1. / ((self.weights / self.ei).sum()))
+
