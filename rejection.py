@@ -39,9 +39,10 @@ class RejectionSampler(Sampler):
             xi2 = np.random.rand(np.ceil(N / eff))
 
             X = self.lower + xi1 * (self.upper - self.lower)
+            P_X = self.pdf(X)
             htilde = self.hmax * xi2
 
-            Z = htilde <= X
+            Z = htilde <= P_X
 
             x_accept = X[Z]
 
