@@ -6,12 +6,14 @@ from .sampling import Sampler
 
 __all__ = ['RejectionSampler', 'MultiRegionRejectionSampler']
 
+
 class RejectionSampler(Sampler):
 
     """Rejection sampler. Will adaptively select the batch size."""
 
-    def __init__(self, pdf, tallyfxn, lower, upper, hmax=None):
-        Sampler.__init__(self, tallyfxn, pdf)
+    def __init__(self, pdf, lower, upper, hmax=None):
+        Sampler.__init__(self)
+        self.pdf = pdf
         if hmax is None:
             bounds = np.array([[lower, upper]])
             x0 = np.atleast_1d((upper - lower) / 2.)
@@ -20,7 +22,7 @@ class RejectionSampler(Sampler):
                              bounds=bounds,
                              method='L-BFGS-B',
                              options={'maxiter': 50}
-                             )
+            )
             self.hmax = -1. * r.fun[0]
         else:
             self.hmax = hmax
@@ -33,6 +35,8 @@ class RejectionSampler(Sampler):
         Nh = N
         S = np.array([])
         eff = 0.9
+
+        prop = 0
 
         while len(S) < N:
             xi1 = np.random.rand(np.ceil(N / eff))
@@ -48,16 +52,18 @@ class RejectionSampler(Sampler):
 
             if len(x_accept) > Nh:
                 x_accept = x_accept[:Nh]
-                self.prop += np.argwhere(Z).flatten()[Nh] + 1
+                prop += np.argwhere(Z).flatten()[Nh] + 1
             else:
-                self.prop += len(X)
+                prop += len(X)
 
             self.accept += len(x_accept)
 
             S = np.hstack((S, x_accept))
             Nh -= len(x_accept)
 
-            eff = max(0.05, (N - Nh) / self.prop)
+            eff = max(0.05, (N - Nh) / prop)
+
+        self.prop += prop
 
         return(S)
 
@@ -65,19 +71,20 @@ class RejectionSampler(Sampler):
     def e(self):
         return(self.accept / self.prop)
 
+
 class MultiRegionRejectionSampler(Sampler):
 
     """See class name..."""
 
-    def __init__(self, pdf, tallyfxn, regions):
-        Sampler.__init__(self, tallyfxn, pdf)
+    def __init__(self, pdf, regions):
+        Sampler.__init__(self)
 
         self.samplers = []
         self.weights = []
         self.n_regions = len(regions)
 
         for lower, upper in regions:
-            S = RejectionSampler(pdf, tallyfxn, lower, upper)
+            S = RejectionSampler(pdf, lower, upper)
             S_H, err = sin.quad(pdf, lower, upper)
 
             self.samplers.append(S)
@@ -90,8 +97,8 @@ class MultiRegionRejectionSampler(Sampler):
     def _draw_samples(self, N):
         ns = np.random.choice(np.arange(self.n_regions),
                               N,
-                              p=self.weights
-                             )
+                              p=self.weights,
+        )
         ns = [len(np.extract(ns == i, ns)) for i in xrange(self.n_regions)]
 
         S = np.array([])
