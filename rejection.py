@@ -17,11 +17,12 @@ class RejectionSampler(Sampler):
         if hmax is None:
             bounds = np.array([[lower, upper]])
             x0 = np.atleast_1d((upper - lower) / 2.)
-            r = sop.minimize(lambda x: np.atleast_1d(-1. * pdf(x)),
-                             x0=x0,
-                             bounds=bounds,
-                             method='L-BFGS-B',
-                             options={'maxiter': 50}
+            r = sop.minimize(
+                lambda x: np.atleast_1d(-1. * pdf(x)),
+                x0=x0,
+                bounds=bounds,
+                method='L-BFGS-B',
+                options={'maxiter': 50},
             )
             self.hmax = -1. * r.fun[0]
         else:
@@ -95,9 +96,10 @@ class MultiRegionRejectionSampler(Sampler):
         self.weights /= self.weights.sum()
 
     def _draw_samples(self, N):
-        ns = np.random.choice(np.arange(self.n_regions),
-                              N,
-                              p=self.weights,
+        ns = np.random.choice(
+            np.arange(self.n_regions),
+            N,
+            p=self.weights,
         )
         ns = [len(np.extract(ns == i, ns)) for i in xrange(self.n_regions)]
 
